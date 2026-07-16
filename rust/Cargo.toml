@@ -84,6 +84,7 @@ color-name = ["std", "dep:color-name"]
 name-current-thread = ["std", "dep:gettid"]
 cuda = ["nvtx-sys/cuda"]
 cuda_runtime = ["nvtx-sys/cuda_runtime"]
+tools = ["std", "nvtx-sys/tools"]
 tracing = [
     "std",
     "color-name",

@@ -69,6 +69,11 @@
 //!   which will yield NVTX ranges and marks, respectively. Only a subset of
 //!   functionality is supported.
 //!
+//! * **tools** -
+//!   When enabled, the [`tools`] module supports implementing NVTX tools (injection
+//!   libraries): a high-level [`tools::Subscriber`] trait plus a low-level typed
+//!   export-table API.
+//!
 //! ## Platform-specific types
 //!
 //! * **`PThread` Resource Naming** -
@@ -192,6 +197,10 @@ pub use crate::str::{Str, StrError};
 #[cfg(all(feature = "tracing", feature = "std"))]
 /// Support for tracing.
 pub mod tracing;
+
+#[cfg(feature = "tools")]
+/// Support for implementing NVTX tools (injection libraries).
+pub mod tools;
 
 /// Low-level NVTX FFI exports.
 pub use nvtx_sys as sys;
