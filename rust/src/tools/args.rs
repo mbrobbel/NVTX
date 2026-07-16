@@ -71,6 +71,19 @@ pub struct ResourceArgs<'a> {
     pub message: Option<MessageView<'a>>,
 }
 
+/// Decoded `nvtxSyncUserAttributes_t`: the attributes of a user-defined
+/// synchronization object.
+///
+/// Borrowed fields are only valid for the duration of the callback.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SyncUserArgs<'a> {
+    /// The `version` field declared by the application (`0` if absent).
+    pub version: u16,
+    /// The synchronization object's name; `None` when absent, null, or of
+    /// unknown type.
+    pub message: Option<MessageView<'a>>,
+}
+
 /// Borrow a NUL-terminated C string, or `None` when `ptr` is null.
 ///
 /// # Safety
@@ -376,6 +389,57 @@ impl ResourceArgs<'_> {
     }
 }
 
+impl SyncUserArgs<'_> {
+    /// Decode user-defined synchronization attributes, reading only the fields
+    /// covered by the struct's declared `size`. A null pointer decodes to the
+    /// default value.
+    ///
+    /// # Safety
+    ///
+    /// A non-null `attrib` must point to an `nvtxSyncUserAttributes_t` valid
+    /// for reads of its declared `size`, whose message string pointers (if
+    /// any) are valid for `'a`.
+    #[must_use]
+    pub unsafe fn decode(attrib: *const ffi::nvtxSyncUserAttributes_t) -> Self {
+        const EMPTY: ffi::nvtxSyncUserAttributes_v0 = ffi::nvtxSyncUserAttributes_v0 {
+            version: 0,
+            size: 0,
+            messageType: 0,
+            message: ffi::nvtxMessageValue_t {
+                ascii: core::ptr::null(),
+            },
+        };
+
+        if attrib.is_null() {
+            return Self::default();
+        }
+        // SAFETY: `attrib` is non-null and the `version`/`size` header is
+        // always present.
+        let declared =
+            unsafe { declared_size(attrib, offset_of!(ffi::nvtxSyncUserAttributes_v0, size)) };
+        let mut raw = EMPTY;
+        // SAFETY: The caller guarantees `attrib` is valid for reads of
+        // `declared` bytes.
+        let len = unsafe { copy_declared(attrib, declared, &mut raw) };
+
+        let message = if has_field(
+            len,
+            offset_of!(ffi::nvtxSyncUserAttributes_v0, message),
+            size_of::<ffi::nvtxMessageValue_t>(),
+        ) {
+            // SAFETY: The caller guarantees message strings are valid for `'a`.
+            unsafe { decode_message(raw.messageType, raw.message) }
+        } else {
+            None
+        };
+
+        Self {
+            version: raw.version,
+            message,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used)]
@@ -500,6 +564,34 @@ mod tests {
         };
         // SAFETY: `attrib` is a valid attributes struct.
         let args = unsafe { EventArgs::decode(&attrib) };
+        assert!(args.message.is_none());
+    }
+
+    #[test]
+    fn decodes_sync_user_attributes() {
+        let name = CString::new("mutex").unwrap();
+        let mut attrib = ffi::nvtxSyncUserAttributes_v0 {
+            version: 0,
+            // CAST: the struct size fits in `u16`.
+            size: size_of::<ffi::nvtxSyncUserAttributes_v0>() as u16,
+            messageType: i32::from(ffi::nvtxMessageType_t::NVTX_MESSAGE_TYPE_ASCII),
+            message: ffi::nvtxMessageValue_t {
+                ascii: name.as_ptr(),
+            },
+        };
+        // SAFETY: `attrib` is a valid sync-user-attributes struct backed by
+        // `name`.
+        let args = unsafe { SyncUserArgs::decode(&attrib) };
+        assert!(matches!(args.message, Some(MessageView::Ascii(s)) if s.to_str() == Ok("mutex")));
+
+        // Truncate the declared size to the header: the message is ignored.
+        attrib.size = 4;
+        // SAFETY: `attrib` is a valid sync-user-attributes struct.
+        let args = unsafe { SyncUserArgs::decode(&attrib) };
+        assert!(args.message.is_none());
+
+        // SAFETY: a null pointer is decoded to the default value.
+        let args = unsafe { SyncUserArgs::decode(core::ptr::null()) };
         assert!(args.message.is_none());
     }
 

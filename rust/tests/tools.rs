@@ -26,11 +26,15 @@ use std::sync::Mutex;
 use nvtx::sys::ffi;
 use nvtx::tools::{
     self, DomainId, EventArgs, ExportTable, MessageView, RangeId, RegisteredStringId, ResourceArgs,
-    ResourceId, Subscriber,
+    ResourceId, Subscriber, SyncUserArgs, SyncUserId,
 };
 use widestring::{WideCStr, WideCString};
 
 const SLOTS: usize = 16;
+const CUDA_SLOTS: usize = 9;
+const CUDART_SLOTS: usize = 7;
+const OPENCL_SLOTS: usize = 15;
+const SYNC_SLOTS: usize = 7;
 
 /// The fake NVTX client's callback slots and slot-pointer tables.
 struct Tables {
@@ -38,6 +42,14 @@ struct Tables {
     core_pointers: [*mut ffi::NvtxFunctionPointer; SLOTS],
     core2_slots: [ffi::NvtxFunctionPointer; SLOTS],
     core2_pointers: [*mut ffi::NvtxFunctionPointer; SLOTS],
+    cuda_slots: [ffi::NvtxFunctionPointer; CUDA_SLOTS],
+    cuda_pointers: [*mut ffi::NvtxFunctionPointer; CUDA_SLOTS],
+    cudart_slots: [ffi::NvtxFunctionPointer; CUDART_SLOTS],
+    cudart_pointers: [*mut ffi::NvtxFunctionPointer; CUDART_SLOTS],
+    opencl_slots: [ffi::NvtxFunctionPointer; OPENCL_SLOTS],
+    opencl_pointers: [*mut ffi::NvtxFunctionPointer; OPENCL_SLOTS],
+    sync_slots: [ffi::NvtxFunctionPointer; SYNC_SLOTS],
+    sync_pointers: [*mut ffi::NvtxFunctionPointer; SYNC_SLOTS],
 }
 
 struct SyncTables(UnsafeCell<Tables>);
@@ -50,6 +62,14 @@ static TABLES: SyncTables = SyncTables(UnsafeCell::new(Tables {
     core_pointers: [core::ptr::null_mut(); SLOTS],
     core2_slots: [None; SLOTS],
     core2_pointers: [core::ptr::null_mut(); SLOTS],
+    cuda_slots: [None; CUDA_SLOTS],
+    cuda_pointers: [core::ptr::null_mut(); CUDA_SLOTS],
+    cudart_slots: [None; CUDART_SLOTS],
+    cudart_pointers: [core::ptr::null_mut(); CUDART_SLOTS],
+    opencl_slots: [None; OPENCL_SLOTS],
+    opencl_pointers: [core::ptr::null_mut(); OPENCL_SLOTS],
+    sync_slots: [None; SYNC_SLOTS],
+    sync_pointers: [core::ptr::null_mut(); SYNC_SLOTS],
 }));
 
 // The fake NVTX functions use the `NVTX_API` calling convention (`__stdcall`
@@ -63,15 +83,29 @@ unsafe fn get_module_function_table_impl(
     out_size: *mut c_uint,
 ) -> c_int {
     let tables = unsafe { &mut *TABLES.0.get() };
-    let pointers = match module {
-        ffi::NvtxCallbackModule::NVTX_CB_MODULE_CORE => tables.core_pointers.as_mut_ptr(),
-        ffi::NvtxCallbackModule::NVTX_CB_MODULE_CORE2 => tables.core2_pointers.as_mut_ptr(),
+    let (pointers, count) = match module {
+        ffi::NvtxCallbackModule::NVTX_CB_MODULE_CORE => (tables.core_pointers.as_mut_ptr(), SLOTS),
+        ffi::NvtxCallbackModule::NVTX_CB_MODULE_CORE2 => {
+            (tables.core2_pointers.as_mut_ptr(), SLOTS)
+        }
+        ffi::NvtxCallbackModule::NVTX_CB_MODULE_CUDA => {
+            (tables.cuda_pointers.as_mut_ptr(), CUDA_SLOTS)
+        }
+        ffi::NvtxCallbackModule::NVTX_CB_MODULE_CUDART => {
+            (tables.cudart_pointers.as_mut_ptr(), CUDART_SLOTS)
+        }
+        ffi::NvtxCallbackModule::NVTX_CB_MODULE_OPENCL => {
+            (tables.opencl_pointers.as_mut_ptr(), OPENCL_SLOTS)
+        }
+        ffi::NvtxCallbackModule::NVTX_CB_MODULE_SYNC => {
+            (tables.sync_pointers.as_mut_ptr(), SYNC_SLOTS)
+        }
         _ => return 0,
     };
     unsafe {
         *out_table = pointers;
         // NVTX reports the highest valid callback id (slot count minus one).
-        *out_size = (SLOTS - 1) as c_uint;
+        *out_size = (count - 1) as c_uint;
     }
     1
 }
@@ -173,6 +207,18 @@ enum Event {
     DomainResourceDestroy(u64),
     DomainRegisterStringAscii(u64, String, u64),
     Initialize,
+    NameCuDeviceAscii(i32, String),
+    NameCudaStreamAscii(u64, String),
+    NameClProgramUnicode(u64, String),
+    SyncUserCreate {
+        domain: u64,
+        name: Option<String>,
+        id: u64,
+    },
+    SyncUserAcquireStart(u64),
+    SyncUserAcquireSuccess(u64),
+    SyncUserReleasing(u64),
+    SyncUserDestroy(u64),
 }
 
 static EVENTS: Mutex<Vec<Event>> = Mutex::new(Vec::new());
@@ -313,6 +359,50 @@ impl Subscriber for Recorder {
     fn initialize(&self) {
         record(Event::Initialize);
     }
+
+    fn name_cudevice_ascii(&self, device: i32, name: &CStr) {
+        record(Event::NameCuDeviceAscii(
+            device,
+            name.to_string_lossy().into_owned(),
+        ));
+    }
+
+    fn name_cuda_stream_ascii(&self, stream: u64, name: &CStr) {
+        record(Event::NameCudaStreamAscii(
+            stream,
+            name.to_string_lossy().into_owned(),
+        ));
+    }
+
+    fn name_cl_program_unicode(&self, program: u64, name: &WideCStr) {
+        record(Event::NameClProgramUnicode(program, name.to_string_lossy()));
+    }
+
+    fn domain_syncuser_create(&self, domain: DomainId, args: &SyncUserArgs<'_>) -> SyncUserId {
+        let id = SyncUserId::new(tools::next_handle());
+        record(Event::SyncUserCreate {
+            domain: domain.raw(),
+            name: args.message.map(owned_message_view),
+            id: id.raw(),
+        });
+        id
+    }
+
+    fn domain_syncuser_acquire_start(&self, handle: SyncUserId) {
+        record(Event::SyncUserAcquireStart(handle.raw()));
+    }
+
+    fn domain_syncuser_acquire_success(&self, handle: SyncUserId) {
+        record(Event::SyncUserAcquireSuccess(handle.raw()));
+    }
+
+    fn domain_syncuser_releasing(&self, handle: SyncUserId) {
+        record(Event::SyncUserReleasing(handle.raw()));
+    }
+
+    fn domain_syncuser_destroy(&self, handle: SyncUserId) {
+        record(Event::SyncUserDestroy(handle.raw()));
+    }
 }
 
 fn core_slot(id: u32) -> ffi::NvtxFunctionPointer {
@@ -323,6 +413,26 @@ fn core_slot(id: u32) -> ffi::NvtxFunctionPointer {
 fn core2_slot(id: u32) -> ffi::NvtxFunctionPointer {
     let tables = unsafe { &*TABLES.0.get() };
     tables.core2_slots[id as usize]
+}
+
+fn cuda_slot(id: u32) -> ffi::NvtxFunctionPointer {
+    let tables = unsafe { &*TABLES.0.get() };
+    tables.cuda_slots[id as usize]
+}
+
+fn cudart_slot(id: u32) -> ffi::NvtxFunctionPointer {
+    let tables = unsafe { &*TABLES.0.get() };
+    tables.cudart_slots[id as usize]
+}
+
+fn opencl_slot(id: u32) -> ffi::NvtxFunctionPointer {
+    let tables = unsafe { &*TABLES.0.get() };
+    tables.opencl_slots[id as usize]
+}
+
+fn sync_slot(id: u32) -> ffi::NvtxFunctionPointer {
+    let tables = unsafe { &*TABLES.0.get() };
+    tables.sync_slots[id as usize]
 }
 
 fn event_attributes(message: &CStr) -> ffi::nvtxEventAttributes_v2 {
@@ -353,6 +463,18 @@ fn attach_installs_working_trampolines() {
         for id in 0..SLOTS {
             tables.core_pointers[id] = core::ptr::from_mut(&mut tables.core_slots[id]);
             tables.core2_pointers[id] = core::ptr::from_mut(&mut tables.core2_slots[id]);
+        }
+        for id in 0..CUDA_SLOTS {
+            tables.cuda_pointers[id] = core::ptr::from_mut(&mut tables.cuda_slots[id]);
+        }
+        for id in 0..CUDART_SLOTS {
+            tables.cudart_pointers[id] = core::ptr::from_mut(&mut tables.cudart_slots[id]);
+        }
+        for id in 0..OPENCL_SLOTS {
+            tables.opencl_pointers[id] = core::ptr::from_mut(&mut tables.opencl_slots[id]);
+        }
+        for id in 0..SYNC_SLOTS {
+            tables.sync_pointers[id] = core::ptr::from_mut(&mut tables.sync_slots[id]);
         }
         tables.core_pointers[3] = core::ptr::null_mut();
     }
@@ -549,6 +671,95 @@ fn attach_installs_working_trampolines() {
             Event::DomainResourceDestroy(resource_raw),
             Event::Initialize,
             Event::DomainDestroy(domain_raw),
+        ]
+    );
+
+    // Every naming/synchronization module slot is installed.
+    for id in 1..CUDA_SLOTS as u32 {
+        assert!(cuda_slot(id).is_some(), "cuda slot {id}");
+    }
+    for id in 1..CUDART_SLOTS as u32 {
+        assert!(cudart_slot(id).is_some(), "cudart slot {id}");
+    }
+    for id in 1..OPENCL_SLOTS as u32 {
+        assert!(opencl_slot(id).is_some(), "opencl slot {id}");
+    }
+    for id in 1..SYNC_SLOTS as u32 {
+        assert!(sync_slot(id).is_some(), "sync slot {id}");
+    }
+
+    // CUDA/CUDART/OPENCL: representative naming callbacks, with pointer-typed
+    // handles surfacing as their address bits.
+    let name_cu_device_a: ffi::nvtxNameCuDeviceA_fakeimpl_fntype =
+        unsafe { transmute(cuda_slot(1)) };
+    let name = CString::new("gpu0").unwrap();
+    unsafe { name_cu_device_a.unwrap()(3, name.as_ptr()) };
+
+    let name_cuda_stream_a: ffi::nvtxNameCudaStreamA_fakeimpl_fntype =
+        unsafe { transmute(cudart_slot(3)) };
+    let name = CString::new("stream").unwrap();
+    unsafe { name_cuda_stream_a.unwrap()(0xBEEF_usize as *mut c_void, name.as_ptr()) };
+
+    let name_cl_program_w: ffi::nvtxNameClProgramW_fakeimpl_fntype =
+        unsafe { transmute(opencl_slot(12)) };
+    let wide = WideCString::from_str("kernel").unwrap();
+    unsafe { name_cl_program_w.unwrap()(0xF00D_usize as *mut c_void, wide.as_ptr().cast()) };
+
+    assert_eq!(
+        take_events(),
+        [
+            Event::NameCuDeviceAscii(3, "gpu0".to_owned()),
+            Event::NameCudaStreamAscii(0xBEEF, "stream".to_owned()),
+            Event::NameClProgramUnicode(0xF00D, "kernel".to_owned()),
+        ]
+    );
+
+    // SYNC: the full user-defined synchronization lifecycle round-trips the
+    // subscriber-returned handle.
+    let sync_create: ffi::nvtxDomainSyncUserCreate_fakeimpl_fntype =
+        unsafe { transmute(sync_slot(1)) };
+    let sync_destroy: ffi::nvtxDomainSyncUserDestroy_fakeimpl_fntype =
+        unsafe { transmute(sync_slot(2)) };
+    let sync_acquire_start: ffi::nvtxDomainSyncUserAcquireStart_fakeimpl_fntype =
+        unsafe { transmute(sync_slot(3)) };
+    let sync_acquire_success: ffi::nvtxDomainSyncUserAcquireSuccess_fakeimpl_fntype =
+        unsafe { transmute(sync_slot(5)) };
+    let sync_releasing: ffi::nvtxDomainSyncUserReleasing_fakeimpl_fntype =
+        unsafe { transmute(sync_slot(6)) };
+
+    let name = CString::new("mutex").unwrap();
+    let sync_attributes = ffi::nvtxSyncUserAttributes_v0 {
+        version: 0,
+        size: size_of::<ffi::nvtxSyncUserAttributes_v0>() as u16,
+        messageType: i32::from(ffi::nvtxMessageType_t::NVTX_MESSAGE_TYPE_ASCII),
+        message: ffi::nvtxMessageValue_t {
+            ascii: name.as_ptr(),
+        },
+    };
+    let sync_user = unsafe {
+        sync_create.unwrap()(
+            domain,
+            core::ptr::from_ref(&sync_attributes).cast::<c_void>(),
+        )
+    };
+    assert!(!sync_user.is_null());
+    let sync_user_raw = sync_user as usize as u64;
+    unsafe { sync_acquire_start.unwrap()(sync_user) };
+    unsafe { sync_acquire_success.unwrap()(sync_user) };
+    unsafe { sync_releasing.unwrap()(sync_user) };
+    unsafe { sync_destroy.unwrap()(sync_user) };
+    assert_eq!(
+        take_events(),
+        [
+            Event::SyncUserCreate {
+                domain: domain_raw,
+                name: Some("mutex".to_owned()),
+                id: sync_user_raw,
+            },
+            Event::SyncUserAcquireStart(sync_user_raw),
+            Event::SyncUserAcquireSuccess(sync_user_raw),
+            Event::SyncUserReleasing(sync_user_raw),
+            Event::SyncUserDestroy(sync_user_raw),
         ]
     );
 

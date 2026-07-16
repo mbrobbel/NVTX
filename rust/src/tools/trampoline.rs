@@ -17,9 +17,14 @@ use crate::sys::ffi;
 use crate::tools::args::{opt_cstr, opt_wide};
 use crate::tools::callback::core as cb_core;
 use crate::tools::callback::core2 as cb_core2;
+use crate::tools::callback::cuda as cb_cuda;
+use crate::tools::callback::cudart as cb_cudart;
+use crate::tools::callback::opencl as cb_opencl;
+use crate::tools::callback::sync as cb_sync;
 use crate::tools::{
-    AttachError, Core, Core2, DomainId, EventArgs, FunctionTable, RegisteredStringId, ResourceArgs,
-    ResourceId, Subscriber, NO_PUSH_POP_TRACKING,
+    AttachError, Core, Core2, Cuda, CudaRt, DomainId, EventArgs, FunctionTable, OpenCl,
+    RegisteredStringId, ResourceArgs, ResourceId, Subscriber, Sync, SyncUserArgs, SyncUserId,
+    NO_PUSH_POP_TRACKING,
 };
 
 /// The process-global subscriber, set once by
@@ -80,13 +85,33 @@ fn resource_id(resource: ffi::nvtxResourceHandle_t) -> ResourceId {
     ResourceId::new(resource as usize as u64)
 }
 
-/// Install all CORE and CORE2 trampolines into the fetched function tables.
+fn sync_user_handle(id: SyncUserId) -> ffi::nvtx_nvtxSyncUser_t {
+    opaque_handle(id.raw())
+}
+
+fn sync_user_id(handle: ffi::nvtx_nvtxSyncUser_t) -> SyncUserId {
+    // CAST: sync-user handles are opaque; capture the pointer's address bits.
+    SyncUserId::new(handle as usize as u64)
+}
+
+/// Capture an application-owned opaque handle as its raw address bits.
+fn opaque_bits(handle: *mut c_void) -> u64 {
+    // CAST: the handle is never dereferenced; only its identity is captured.
+    handle as usize as u64
+}
+
+/// Install all trampolines into the fetched function tables.
 ///
 /// Slots rejected by the application's NVTX version (out of bounds or null)
-/// are skipped best-effort.
+/// are skipped best-effort, as are the optional naming/synchronization module
+/// tables.
 pub(super) fn install(
     mut global_table: FunctionTable<Core>,
     mut domain_table: FunctionTable<Core2>,
+    cuda_table: Option<FunctionTable<Cuda>>,
+    cudart_table: Option<FunctionTable<CudaRt>>,
+    opencl_table: Option<FunctionTable<OpenCl>>,
+    sync_table: Option<FunctionTable<Sync>>,
 ) {
     let _ = global_table.set(cb_core::MarkEx, Some(mark_ex));
     let _ = global_table.set(cb_core::MarkA, Some(mark_a));
@@ -128,6 +153,80 @@ pub(super) fn install(
     let _ = domain_table.set(cb_core2::DomainCreateW, Some(domain_create_w));
     let _ = domain_table.set(cb_core2::DomainDestroy, Some(domain_destroy));
     let _ = domain_table.set(cb_core2::Initialize, Some(initialize));
+
+    install_naming_and_sync(cuda_table, cudart_table, opencl_table, sync_table);
+}
+
+/// Install the trampolines of the optional naming and synchronization modules.
+fn install_naming_and_sync(
+    cuda_table: Option<FunctionTable<Cuda>>,
+    cudart_table: Option<FunctionTable<CudaRt>>,
+    opencl_table: Option<FunctionTable<OpenCl>>,
+    sync_table: Option<FunctionTable<Sync>>,
+) {
+    if let Some(mut table) = cuda_table {
+        let _ = table.set(cb_cuda::NameCuDeviceA, Some(name_cu_device_a));
+        let _ = table.set(cb_cuda::NameCuDeviceW, Some(name_cu_device_w));
+        let _ = table.set(cb_cuda::NameCuContextA, Some(name_cu_context_a));
+        let _ = table.set(cb_cuda::NameCuContextW, Some(name_cu_context_w));
+        let _ = table.set(cb_cuda::NameCuStreamA, Some(name_cu_stream_a));
+        let _ = table.set(cb_cuda::NameCuStreamW, Some(name_cu_stream_w));
+        let _ = table.set(cb_cuda::NameCuEventA, Some(name_cu_event_a));
+        let _ = table.set(cb_cuda::NameCuEventW, Some(name_cu_event_w));
+    }
+    if let Some(mut table) = cudart_table {
+        let _ = table.set(cb_cudart::NameCudaDeviceA, Some(name_cuda_device_a));
+        let _ = table.set(cb_cudart::NameCudaDeviceW, Some(name_cuda_device_w));
+        let _ = table.set(cb_cudart::NameCudaStreamA, Some(name_cuda_stream_a));
+        let _ = table.set(cb_cudart::NameCudaStreamW, Some(name_cuda_stream_w));
+        let _ = table.set(cb_cudart::NameCudaEventA, Some(name_cuda_event_a));
+        let _ = table.set(cb_cudart::NameCudaEventW, Some(name_cuda_event_w));
+    }
+    if let Some(mut table) = opencl_table {
+        let _ = table.set(cb_opencl::NameClDeviceA, Some(name_cl_device_a));
+        let _ = table.set(cb_opencl::NameClDeviceW, Some(name_cl_device_w));
+        let _ = table.set(cb_opencl::NameClContextA, Some(name_cl_context_a));
+        let _ = table.set(cb_opencl::NameClContextW, Some(name_cl_context_w));
+        let _ = table.set(
+            cb_opencl::NameClCommandQueueA,
+            Some(name_cl_command_queue_a),
+        );
+        let _ = table.set(
+            cb_opencl::NameClCommandQueueW,
+            Some(name_cl_command_queue_w),
+        );
+        let _ = table.set(cb_opencl::NameClMemObjectA, Some(name_cl_mem_object_a));
+        let _ = table.set(cb_opencl::NameClMemObjectW, Some(name_cl_mem_object_w));
+        let _ = table.set(cb_opencl::NameClSamplerA, Some(name_cl_sampler_a));
+        let _ = table.set(cb_opencl::NameClSamplerW, Some(name_cl_sampler_w));
+        let _ = table.set(cb_opencl::NameClProgramA, Some(name_cl_program_a));
+        let _ = table.set(cb_opencl::NameClProgramW, Some(name_cl_program_w));
+        let _ = table.set(cb_opencl::NameClEventA, Some(name_cl_event_a));
+        let _ = table.set(cb_opencl::NameClEventW, Some(name_cl_event_w));
+    }
+    if let Some(mut table) = sync_table {
+        let _ = table.set(cb_sync::DomainSyncUserCreate, Some(domain_sync_user_create));
+        let _ = table.set(
+            cb_sync::DomainSyncUserDestroy,
+            Some(domain_sync_user_destroy),
+        );
+        let _ = table.set(
+            cb_sync::DomainSyncUserAcquireStart,
+            Some(domain_sync_user_acquire_start),
+        );
+        let _ = table.set(
+            cb_sync::DomainSyncUserAcquireFailed,
+            Some(domain_sync_user_acquire_failed),
+        );
+        let _ = table.set(
+            cb_sync::DomainSyncUserAcquireSuccess,
+            Some(domain_sync_user_acquire_success),
+        );
+        let _ = table.set(
+            cb_sync::DomainSyncUserReleasing,
+            Some(domain_sync_user_releasing),
+        );
+    }
 }
 
 // NVTX callbacks use the `NVTX_API` calling convention: `__stdcall` on 32-bit
@@ -398,5 +497,276 @@ nvtx_api_callbacks! {
     unsafe fn initialize(reserved: *const c_void) {
         let _ = reserved;
         with_subscriber((), |s| s.initialize());
+    }
+}
+
+nvtx_api_callbacks! {
+    unsafe fn name_cu_device_a(device: ffi::nvtx_CUdevice, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cudevice_ascii(device, name));
+    }
+
+    unsafe fn name_cu_device_w(device: ffi::nvtx_CUdevice, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cudevice_unicode(device, name));
+    }
+
+    unsafe fn name_cu_context_a(context: ffi::nvtx_CUcontext, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cucontext_ascii(opaque_bits(context), name));
+    }
+
+    unsafe fn name_cu_context_w(context: ffi::nvtx_CUcontext, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cucontext_unicode(opaque_bits(context), name));
+    }
+
+    unsafe fn name_cu_stream_a(stream: ffi::nvtx_CUstream, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_custream_ascii(opaque_bits(stream), name));
+    }
+
+    unsafe fn name_cu_stream_w(stream: ffi::nvtx_CUstream, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_custream_unicode(opaque_bits(stream), name));
+    }
+
+    unsafe fn name_cu_event_a(event: ffi::nvtx_CUevent, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cuevent_ascii(opaque_bits(event), name));
+    }
+
+    unsafe fn name_cu_event_w(event: ffi::nvtx_CUevent, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cuevent_unicode(opaque_bits(event), name));
+    }
+
+    unsafe fn name_cuda_device_a(device: c_int, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cuda_device_ascii(device, name));
+    }
+
+    unsafe fn name_cuda_device_w(device: c_int, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cuda_device_unicode(device, name));
+    }
+
+    unsafe fn name_cuda_stream_a(stream: ffi::nvtx_cudaStream_t, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cuda_stream_ascii(opaque_bits(stream), name));
+    }
+
+    unsafe fn name_cuda_stream_w(stream: ffi::nvtx_cudaStream_t, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cuda_stream_unicode(opaque_bits(stream), name));
+    }
+
+    unsafe fn name_cuda_event_a(event: ffi::nvtx_cudaEvent_t, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cuda_event_ascii(opaque_bits(event), name));
+    }
+
+    unsafe fn name_cuda_event_w(event: ffi::nvtx_cudaEvent_t, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cuda_event_unicode(opaque_bits(event), name));
+    }
+
+    unsafe fn name_cl_device_a(device: ffi::nvtx_cl_device_id, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cl_device_ascii(opaque_bits(device), name));
+    }
+
+    unsafe fn name_cl_device_w(device: ffi::nvtx_cl_device_id, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cl_device_unicode(opaque_bits(device), name));
+    }
+
+    unsafe fn name_cl_context_a(context: ffi::nvtx_cl_context, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cl_context_ascii(opaque_bits(context), name));
+    }
+
+    unsafe fn name_cl_context_w(context: ffi::nvtx_cl_context, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cl_context_unicode(opaque_bits(context), name));
+    }
+
+    unsafe fn name_cl_command_queue_a(command_queue: ffi::nvtx_cl_command_queue, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| {
+            s.name_cl_command_queue_ascii(opaque_bits(command_queue), name);
+        });
+    }
+
+    unsafe fn name_cl_command_queue_w(command_queue: ffi::nvtx_cl_command_queue, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| {
+            s.name_cl_command_queue_unicode(opaque_bits(command_queue), name);
+        });
+    }
+
+    unsafe fn name_cl_mem_object_a(mem_object: ffi::nvtx_cl_mem, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cl_mem_object_ascii(opaque_bits(mem_object), name));
+    }
+
+    unsafe fn name_cl_mem_object_w(mem_object: ffi::nvtx_cl_mem, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| {
+            s.name_cl_mem_object_unicode(opaque_bits(mem_object), name);
+        });
+    }
+
+    unsafe fn name_cl_sampler_a(sampler: ffi::nvtx_cl_sampler, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cl_sampler_ascii(opaque_bits(sampler), name));
+    }
+
+    unsafe fn name_cl_sampler_w(sampler: ffi::nvtx_cl_sampler, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cl_sampler_unicode(opaque_bits(sampler), name));
+    }
+
+    unsafe fn name_cl_program_a(program: ffi::nvtx_cl_program, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cl_program_ascii(opaque_bits(program), name));
+    }
+
+    unsafe fn name_cl_program_w(program: ffi::nvtx_cl_program, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cl_program_unicode(opaque_bits(program), name));
+    }
+
+    unsafe fn name_cl_event_a(event: ffi::nvtx_cl_event, name: *const c_char) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_cstr(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cl_event_ascii(opaque_bits(event), name));
+    }
+
+    unsafe fn name_cl_event_w(event: ffi::nvtx_cl_event, name: *const ffi::wchar_t) {
+        // SAFETY: NVTX callback contract (see above).
+        let Some(name) = (unsafe { opt_wide(name) }) else {
+            return;
+        };
+        with_subscriber((), |s| s.name_cl_event_unicode(opaque_bits(event), name));
+    }
+
+    unsafe fn domain_sync_user_create(
+        domain: ffi::nvtxDomainHandle_t,
+        attribs: *const ffi::nvtx_nvtxSyncUserAttributes_t,
+    ) -> ffi::nvtx_nvtxSyncUser_t {
+        // SAFETY: NVTX callback contract (see above); the fake attributes type
+        // is binary-compatible with `nvtxSyncUserAttributes_t`.
+        let args = unsafe { SyncUserArgs::decode(attribs.cast()) };
+        let id = with_subscriber(SyncUserId::new(0), |s| {
+            s.domain_syncuser_create(domain_id(domain), &args)
+        });
+        sync_user_handle(id)
+    }
+
+    unsafe fn domain_sync_user_destroy(handle: ffi::nvtx_nvtxSyncUser_t) {
+        with_subscriber((), |s| s.domain_syncuser_destroy(sync_user_id(handle)));
+    }
+
+    unsafe fn domain_sync_user_acquire_start(handle: ffi::nvtx_nvtxSyncUser_t) {
+        with_subscriber((), |s| {
+            s.domain_syncuser_acquire_start(sync_user_id(handle));
+        });
+    }
+
+    unsafe fn domain_sync_user_acquire_failed(handle: ffi::nvtx_nvtxSyncUser_t) {
+        with_subscriber((), |s| {
+            s.domain_syncuser_acquire_failed(sync_user_id(handle));
+        });
+    }
+
+    unsafe fn domain_sync_user_acquire_success(handle: ffi::nvtx_nvtxSyncUser_t) {
+        with_subscriber((), |s| {
+            s.domain_syncuser_acquire_success(sync_user_id(handle));
+        });
+    }
+
+    unsafe fn domain_sync_user_releasing(handle: ffi::nvtx_nvtxSyncUser_t) {
+        with_subscriber((), |s| s.domain_syncuser_releasing(sync_user_id(handle)));
     }
 }

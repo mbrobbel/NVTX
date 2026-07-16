@@ -110,10 +110,10 @@ mod export;
 mod subscriber;
 mod trampoline;
 
-pub use args::{EventArgs, MessageView, ResourceArgs};
+pub use args::{EventArgs, MessageView, ResourceArgs, SyncUserArgs};
 pub use callback::{CallbackId, CallbackModule, Core, Core2, Cuda, CudaRt, OpenCl, Sync};
 pub use export::{ExportTable, FunctionTable, SlotError, VersionInfo};
-pub use subscriber::{DomainId, RegisteredStringId, ResourceId, Subscriber};
+pub use subscriber::{DomainId, RegisteredStringId, ResourceId, Subscriber, SyncUserId};
 
 /// A process-visible range identifier, correlating range start and end.
 pub use crate::sys::RangeId;
@@ -172,8 +172,10 @@ impl std::error::Error for AttachError {}
 
 /// Attach `subscriber` as the process-global NVTX subscriber.
 ///
-/// Installs the crate's trampolines into the CORE and CORE2 function tables so
-/// every NVTX call in the application is forwarded to `subscriber`. Attaching
+/// Installs the crate's trampolines into the callback function tables so every
+/// NVTX call in the application is forwarded to `subscriber`. The CORE and
+/// CORE2 tables are required; the CUDA, CUDART, OPENCL, and SYNC naming and
+/// synchronization tables are installed best-effort when available. Attaching
 /// is one-shot per process, matching NVTX's single `InitializeInjectionNvtx2`
 /// call. Slots unavailable in the application's NVTX version (out-of-bounds or
 /// null) are skipped best-effort. The tool's NVTX version is reported through
@@ -204,14 +206,27 @@ pub unsafe fn attach(
     // SAFETY: The caller upholds `ExportTable::new`'s contract.
     let export = unsafe { ExportTable::new(get_export_table) };
     let export = export.ok_or(AttachError::NullGetExportTable)?;
-    // Fetch both tables before committing the subscriber so a failed attach
-    // stores nothing and can be retried.
+    // Fetch the required tables before committing the subscriber so a failed
+    // attach stores nothing and can be retried.
     let global_table = export.function_table::<Core>()?;
     let domain_table = export.function_table::<Core2>()?;
+    // The naming/synchronization modules are best-effort: their absence only
+    // loses those callbacks.
+    let cuda_table = export.function_table::<Cuda>().ok();
+    let cudart_table = export.function_table::<CudaRt>().ok();
+    let opencl_table = export.function_table::<OpenCl>().ok();
+    let sync_table = export.function_table::<Sync>().ok();
     // Store the subscriber before installing any trampoline so a callback can
     // never fire without a subscriber in place.
     trampoline::set_subscriber(Box::new(subscriber))?;
-    trampoline::install(global_table, domain_table);
+    trampoline::install(
+        global_table,
+        domain_table,
+        cuda_table,
+        cudart_table,
+        opencl_table,
+        sync_table,
+    );
     // Report the tool's NVTX version, as the injection ABI requires.
     if let Some(version_info) = export.version_info() {
         // CAST: `NVTX_VERSION` is a small positive constant.

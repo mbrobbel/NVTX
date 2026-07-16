@@ -224,4 +224,94 @@ define_callback_ids! {
         /// `nvtxInitialize` slot.
         Initialize = NVTX_CBID_CORE2_Initialize => nvtxInitialize_impl_fntype,
     }
+    /// Callback slots of the [`Cuda`] module.
+    mod cuda (Cuda, NvtxCallbackIdCuda) {
+        /// `nvtxNameCuDeviceA` slot.
+        NameCuDeviceA = NVTX_CBID_CUDA_NameCuDeviceA => nvtxNameCuDeviceA_fakeimpl_fntype,
+        /// `nvtxNameCuDeviceW` slot.
+        NameCuDeviceW = NVTX_CBID_CUDA_NameCuDeviceW => nvtxNameCuDeviceW_fakeimpl_fntype,
+        /// `nvtxNameCuContextA` slot.
+        NameCuContextA = NVTX_CBID_CUDA_NameCuContextA => nvtxNameCuContextA_fakeimpl_fntype,
+        /// `nvtxNameCuContextW` slot.
+        NameCuContextW = NVTX_CBID_CUDA_NameCuContextW => nvtxNameCuContextW_fakeimpl_fntype,
+        /// `nvtxNameCuStreamA` slot.
+        NameCuStreamA = NVTX_CBID_CUDA_NameCuStreamA => nvtxNameCuStreamA_fakeimpl_fntype,
+        /// `nvtxNameCuStreamW` slot.
+        NameCuStreamW = NVTX_CBID_CUDA_NameCuStreamW => nvtxNameCuStreamW_fakeimpl_fntype,
+        /// `nvtxNameCuEventA` slot.
+        NameCuEventA = NVTX_CBID_CUDA_NameCuEventA => nvtxNameCuEventA_fakeimpl_fntype,
+        /// `nvtxNameCuEventW` slot.
+        NameCuEventW = NVTX_CBID_CUDA_NameCuEventW => nvtxNameCuEventW_fakeimpl_fntype,
+    }
+    /// Callback slots of the [`CudaRt`] module.
+    mod cudart (CudaRt, NvtxCallbackIdCudaRt) {
+        /// `nvtxNameCudaDeviceA` slot.
+        NameCudaDeviceA = NVTX_CBID_CUDART_NameCudaDeviceA => nvtxNameCudaDeviceA_fakeimpl_fntype,
+        /// `nvtxNameCudaDeviceW` slot.
+        NameCudaDeviceW = NVTX_CBID_CUDART_NameCudaDeviceW => nvtxNameCudaDeviceW_fakeimpl_fntype,
+        /// `nvtxNameCudaStreamA` slot.
+        NameCudaStreamA = NVTX_CBID_CUDART_NameCudaStreamA => nvtxNameCudaStreamA_fakeimpl_fntype,
+        /// `nvtxNameCudaStreamW` slot.
+        NameCudaStreamW = NVTX_CBID_CUDART_NameCudaStreamW => nvtxNameCudaStreamW_fakeimpl_fntype,
+        /// `nvtxNameCudaEventA` slot.
+        NameCudaEventA = NVTX_CBID_CUDART_NameCudaEventA => nvtxNameCudaEventA_fakeimpl_fntype,
+        /// `nvtxNameCudaEventW` slot.
+        NameCudaEventW = NVTX_CBID_CUDART_NameCudaEventW => nvtxNameCudaEventW_fakeimpl_fntype,
+    }
+    /// Callback slots of the [`OpenCl`] module.
+    mod opencl (OpenCl, NvtxCallbackIdOpenCL) {
+        /// `nvtxNameClDeviceA` slot.
+        NameClDeviceA = NVTX_CBID_OPENCL_NameClDeviceA => nvtxNameClDeviceA_fakeimpl_fntype,
+        /// `nvtxNameClDeviceW` slot.
+        NameClDeviceW = NVTX_CBID_OPENCL_NameClDeviceW => nvtxNameClDeviceW_fakeimpl_fntype,
+        /// `nvtxNameClContextA` slot.
+        NameClContextA = NVTX_CBID_OPENCL_NameClContextA => nvtxNameClContextA_fakeimpl_fntype,
+        /// `nvtxNameClContextW` slot.
+        NameClContextW = NVTX_CBID_OPENCL_NameClContextW => nvtxNameClContextW_fakeimpl_fntype,
+        /// `nvtxNameClCommandQueueA` slot.
+        NameClCommandQueueA =
+            NVTX_CBID_OPENCL_NameClCommandQueueA => nvtxNameClCommandQueueA_fakeimpl_fntype,
+        /// `nvtxNameClCommandQueueW` slot.
+        NameClCommandQueueW =
+            NVTX_CBID_OPENCL_NameClCommandQueueW => nvtxNameClCommandQueueW_fakeimpl_fntype,
+        /// `nvtxNameClMemObjectA` slot.
+        NameClMemObjectA =
+            NVTX_CBID_OPENCL_NameClMemObjectA => nvtxNameClMemObjectA_fakeimpl_fntype,
+        /// `nvtxNameClMemObjectW` slot.
+        NameClMemObjectW =
+            NVTX_CBID_OPENCL_NameClMemObjectW => nvtxNameClMemObjectW_fakeimpl_fntype,
+        /// `nvtxNameClSamplerA` slot.
+        NameClSamplerA = NVTX_CBID_OPENCL_NameClSamplerA => nvtxNameClSamplerA_fakeimpl_fntype,
+        /// `nvtxNameClSamplerW` slot.
+        NameClSamplerW = NVTX_CBID_OPENCL_NameClSamplerW => nvtxNameClSamplerW_fakeimpl_fntype,
+        /// `nvtxNameClProgramA` slot.
+        NameClProgramA = NVTX_CBID_OPENCL_NameClProgramA => nvtxNameClProgramA_fakeimpl_fntype,
+        /// `nvtxNameClProgramW` slot.
+        NameClProgramW = NVTX_CBID_OPENCL_NameClProgramW => nvtxNameClProgramW_fakeimpl_fntype,
+        /// `nvtxNameClEventA` slot.
+        NameClEventA = NVTX_CBID_OPENCL_NameClEventA => nvtxNameClEventA_fakeimpl_fntype,
+        /// `nvtxNameClEventW` slot.
+        NameClEventW = NVTX_CBID_OPENCL_NameClEventW => nvtxNameClEventW_fakeimpl_fntype,
+    }
+    /// Callback slots of the [`Sync`] module.
+    mod sync (Sync, NvtxCallbackIdSync) {
+        /// `nvtxDomainSyncUserCreate` slot.
+        DomainSyncUserCreate =
+            NVTX_CBID_SYNC_DomainSyncUserCreate => nvtxDomainSyncUserCreate_fakeimpl_fntype,
+        /// `nvtxDomainSyncUserDestroy` slot.
+        DomainSyncUserDestroy =
+            NVTX_CBID_SYNC_DomainSyncUserDestroy => nvtxDomainSyncUserDestroy_fakeimpl_fntype,
+        /// `nvtxDomainSyncUserAcquireStart` slot.
+        DomainSyncUserAcquireStart = NVTX_CBID_SYNC_DomainSyncUserAcquireStart
+            => nvtxDomainSyncUserAcquireStart_fakeimpl_fntype,
+        /// `nvtxDomainSyncUserAcquireFailed` slot.
+        DomainSyncUserAcquireFailed = NVTX_CBID_SYNC_DomainSyncUserAcquireFailed
+            => nvtxDomainSyncUserAcquireFailed_fakeimpl_fntype,
+        /// `nvtxDomainSyncUserAcquireSuccess` slot.
+        DomainSyncUserAcquireSuccess = NVTX_CBID_SYNC_DomainSyncUserAcquireSuccess
+            => nvtxDomainSyncUserAcquireSuccess_fakeimpl_fntype,
+        /// `nvtxDomainSyncUserReleasing` slot.
+        DomainSyncUserReleasing = NVTX_CBID_SYNC_DomainSyncUserReleasing
+            => nvtxDomainSyncUserReleasing_fakeimpl_fntype,
+    }
 }

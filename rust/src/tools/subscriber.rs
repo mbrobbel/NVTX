@@ -7,7 +7,9 @@ use core::ffi::CStr;
 
 use widestring::WideCStr;
 
-use crate::tools::{next_handle, EventArgs, RangeId, ResourceArgs, NO_PUSH_POP_TRACKING};
+use crate::tools::{
+    next_handle, EventArgs, RangeId, ResourceArgs, SyncUserArgs, NO_PUSH_POP_TRACKING,
+};
 
 /// Identifies a domain created by [`Subscriber::domain_create_ascii`] or
 /// [`Subscriber::domain_create_unicode`].
@@ -58,6 +60,25 @@ impl RegisteredStringId {
 pub struct ResourceId(u64);
 
 impl ResourceId {
+    /// Wrap a raw identifier value.
+    #[must_use]
+    pub const fn new(raw: u64) -> Self {
+        Self(raw)
+    }
+
+    /// The raw identifier value.
+    #[must_use]
+    pub const fn raw(self) -> u64 {
+        self.0
+    }
+}
+
+/// Identifies a user-defined synchronization object created by
+/// [`Subscriber::domain_syncuser_create`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SyncUserId(u64);
+
+impl SyncUserId {
     /// Wrap a raw identifier value.
     #[must_use]
     pub const fn new(raw: u64) -> Self {
@@ -262,4 +283,124 @@ pub trait Subscriber: Send + Sync {
 
     /// `nvtxInitialize`: explicit NVTX initialization by the application.
     fn initialize(&self) {}
+
+    // CUDA driver, CUDA runtime, and OpenCL resource-naming callbacks receive
+    // the application's opaque handles; pointer-typed handles surface as their
+    // raw address bits.
+
+    /// `nvtxNameCuDeviceA`: name a CUDA device with an ASCII string.
+    fn name_cudevice_ascii(&self, device: i32, name: &CStr) {}
+
+    /// `nvtxNameCuDeviceW`: name a CUDA device with a Unicode string.
+    fn name_cudevice_unicode(&self, device: i32, name: &WideCStr) {}
+
+    /// `nvtxNameCuContextA`: name a CUDA context with an ASCII string.
+    fn name_cucontext_ascii(&self, context: u64, name: &CStr) {}
+
+    /// `nvtxNameCuContextW`: name a CUDA context with a Unicode string.
+    fn name_cucontext_unicode(&self, context: u64, name: &WideCStr) {}
+
+    /// `nvtxNameCuStreamA`: name a CUDA stream with an ASCII string.
+    fn name_custream_ascii(&self, stream: u64, name: &CStr) {}
+
+    /// `nvtxNameCuStreamW`: name a CUDA stream with a Unicode string.
+    fn name_custream_unicode(&self, stream: u64, name: &WideCStr) {}
+
+    /// `nvtxNameCuEventA`: name a CUDA event with an ASCII string.
+    fn name_cuevent_ascii(&self, event: u64, name: &CStr) {}
+
+    /// `nvtxNameCuEventW`: name a CUDA event with a Unicode string.
+    fn name_cuevent_unicode(&self, event: u64, name: &WideCStr) {}
+
+    /// `nvtxNameCudaDeviceA`: name a CUDA runtime device with an ASCII string.
+    fn name_cuda_device_ascii(&self, device: i32, name: &CStr) {}
+
+    /// `nvtxNameCudaDeviceW`: name a CUDA runtime device with a Unicode
+    /// string.
+    fn name_cuda_device_unicode(&self, device: i32, name: &WideCStr) {}
+
+    /// `nvtxNameCudaStreamA`: name a CUDA runtime stream with an ASCII string.
+    fn name_cuda_stream_ascii(&self, stream: u64, name: &CStr) {}
+
+    /// `nvtxNameCudaStreamW`: name a CUDA runtime stream with a Unicode
+    /// string.
+    fn name_cuda_stream_unicode(&self, stream: u64, name: &WideCStr) {}
+
+    /// `nvtxNameCudaEventA`: name a CUDA runtime event with an ASCII string.
+    fn name_cuda_event_ascii(&self, event: u64, name: &CStr) {}
+
+    /// `nvtxNameCudaEventW`: name a CUDA runtime event with a Unicode string.
+    fn name_cuda_event_unicode(&self, event: u64, name: &WideCStr) {}
+
+    /// `nvtxNameClDeviceA`: name an `OpenCL` device with an ASCII string.
+    fn name_cl_device_ascii(&self, device: u64, name: &CStr) {}
+
+    /// `nvtxNameClDeviceW`: name an `OpenCL` device with a Unicode string.
+    fn name_cl_device_unicode(&self, device: u64, name: &WideCStr) {}
+
+    /// `nvtxNameClContextA`: name an `OpenCL` context with an ASCII string.
+    fn name_cl_context_ascii(&self, context: u64, name: &CStr) {}
+
+    /// `nvtxNameClContextW`: name an `OpenCL` context with a Unicode string.
+    fn name_cl_context_unicode(&self, context: u64, name: &WideCStr) {}
+
+    /// `nvtxNameClCommandQueueA`: name an `OpenCL` command queue with an ASCII
+    /// string.
+    fn name_cl_command_queue_ascii(&self, command_queue: u64, name: &CStr) {}
+
+    /// `nvtxNameClCommandQueueW`: name an `OpenCL` command queue with a
+    /// Unicode string.
+    fn name_cl_command_queue_unicode(&self, command_queue: u64, name: &WideCStr) {}
+
+    /// `nvtxNameClMemObjectA`: name an `OpenCL` memory object with an ASCII
+    /// string.
+    fn name_cl_mem_object_ascii(&self, mem_object: u64, name: &CStr) {}
+
+    /// `nvtxNameClMemObjectW`: name an `OpenCL` memory object with a Unicode
+    /// string.
+    fn name_cl_mem_object_unicode(&self, mem_object: u64, name: &WideCStr) {}
+
+    /// `nvtxNameClSamplerA`: name an `OpenCL` sampler with an ASCII string.
+    fn name_cl_sampler_ascii(&self, sampler: u64, name: &CStr) {}
+
+    /// `nvtxNameClSamplerW`: name an `OpenCL` sampler with a Unicode string.
+    fn name_cl_sampler_unicode(&self, sampler: u64, name: &WideCStr) {}
+
+    /// `nvtxNameClProgramA`: name an `OpenCL` program with an ASCII string.
+    fn name_cl_program_ascii(&self, program: u64, name: &CStr) {}
+
+    /// `nvtxNameClProgramW`: name an `OpenCL` program with a Unicode string.
+    fn name_cl_program_unicode(&self, program: u64, name: &WideCStr) {}
+
+    /// `nvtxNameClEventA`: name an `OpenCL` event with an ASCII string.
+    fn name_cl_event_ascii(&self, event: u64, name: &CStr) {}
+
+    /// `nvtxNameClEventW`: name an `OpenCL` event with a Unicode string.
+    fn name_cl_event_unicode(&self, event: u64, name: &WideCStr) {}
+
+    /// `nvtxDomainSyncUserCreate`: create a user-defined synchronization
+    /// object within a domain.
+    ///
+    /// The returned identifier is handed back in the other `domain_syncuser_*`
+    /// callbacks.
+    fn domain_syncuser_create(&self, domain: DomainId, args: &SyncUserArgs<'_>) -> SyncUserId {
+        SyncUserId::new(next_handle())
+    }
+
+    /// `nvtxDomainSyncUserDestroy`: destroy a user-defined synchronization
+    /// object.
+    fn domain_syncuser_destroy(&self, handle: SyncUserId) {}
+
+    /// `nvtxDomainSyncUserAcquireStart`: the synchronization object started to
+    /// acquire.
+    fn domain_syncuser_acquire_start(&self, handle: SyncUserId) {}
+
+    /// `nvtxDomainSyncUserAcquireFailed`: the acquisition failed.
+    fn domain_syncuser_acquire_failed(&self, handle: SyncUserId) {}
+
+    /// `nvtxDomainSyncUserAcquireSuccess`: the acquisition succeeded.
+    fn domain_syncuser_acquire_success(&self, handle: SyncUserId) {}
+
+    /// `nvtxDomainSyncUserReleasing`: the synchronization object is released.
+    fn domain_syncuser_releasing(&self, handle: SyncUserId) {}
 }
