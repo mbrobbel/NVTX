@@ -45,11 +45,15 @@
 //! }
 //! ```
 
+mod args;
 pub mod callback;
 mod export;
+mod subscriber;
 
+pub use args::{EventArgs, MessageView, ResourceArgs};
 pub use callback::{CallbackId, CallbackModule, Core, Core2, Cuda, CudaRt, OpenCl, Sync};
 pub use export::{ExportTable, FunctionTable, SlotError, VersionInfo};
+pub use subscriber::{DomainId, RegisteredStringId, ResourceId};
 
 /// Error returned by [`ExportTable::function_table`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
